@@ -1,18 +1,19 @@
 import tensorflow as tf
 import numpy as np
 import collections
-import transform
-import utils
+from transform import Transform
+from utils import load_image, get_img, center_crop, save_image
 import style_transfer_tester
 
+
 class StyleTransferTrainer:
-    def __init__(self, content_layer_ids, style_layer_ids, content_images, style_image, session, net, num_epochs,
+    def __init__(self, content_layer_ids, style_layer_ids, content_images, style_images, session, net, num_epochs,
                  batch_size, content_weight, style_weight, tv_weight, learn_rate, save_path, check_period, test_image,
-                 max_size):
+                 max_size, style_name):
 
         self.net = net
         self.sess = session
-
+        self.style_name = style_name
         # sort layers info
         self.CONTENT_LAYERS = collections.OrderedDict(sorted(content_layer_ids.items()))
         self.STYLE_LAYERS = collections.OrderedDict(sorted(style_layer_ids.items()))
@@ -21,7 +22,8 @@ class StyleTransferTrainer:
         self.x_list = content_images
         mod = len(content_images) % batch_size
         self.x_list = self.x_list[:-mod]
-        self.y_s0 = style_image
+        self.y_list = style_images
+        
         self.content_size = len(self.x_list)
 
         # parameters for optimization
@@ -37,8 +39,8 @@ class StyleTransferTrainer:
         self.save_path = save_path
 
         # image transform network
-        self.transform = transform.Transform()
-        self.tester = transform.Transform('test')
+        self.transform = Transform(len(self.y_list))
+        self.tester = Transform(len(self.y_list), 'test')
 
         # build graph for style transfer
         self._build_graph()
@@ -48,15 +50,17 @@ class StyleTransferTrainer:
             self.TEST = True
 
             # load content image
-            self.test_image = utils.load_image(test_image, max_size=max_size)
+            self.test_image = load_image(test_image, max_size=max_size)
 
             # build graph
             self.x_test = tf.placeholder(tf.float32, shape=self.test_image.shape, name='test_input')
             self.xi_test = tf.expand_dims(self.x_test, 0)  # add one dim for batch
+            self.style_index_test = tf.placeholder(tf.int32, shape=(1,), name='test_style_index')
+            self.style_index_test_batch = tf.expand_dims(self.style_index_test, 0)
 
             # result image from transform-net
             self.y_hat_test = self.tester.net(
-                self.xi_test / 255.0)  # please build graph for train first. tester.net reuses variables.
+                self.xi_test / 255.0, self.style_index_test_batch)  # please build graph for train first. tester.net reuses variables.
 
         else:
             self.TEST = False
@@ -65,11 +69,13 @@ class StyleTransferTrainer:
 
         """ prepare data """
 
-        self.batch_shape = (self.batch_size,256,256,3)
-
+        self.batch_shape = (self.batch_size, 256, 256, 3)
+        print('Using shape={}'.format(self.y_list[0].shape))
         # graph input
         self.y_c = tf.placeholder(tf.float32, shape=self.batch_shape, name='content')
-        self.y_s = tf.placeholder(tf.float32, shape=self.y_s0.shape, name='style')
+        self.y_s = tf.placeholder(tf.float32, shape=self.y_list[0].shape, name='style')
+        self.style_index = tf.placeholder(tf.int32, shape=(1,), name='style_index')
+        self.style_index_batch = tf.expand_dims(self.style_index, 0)
 
         # preprocess for VGG
         self.y_c_pre = self.net.preprocess(self.y_c)
@@ -88,9 +94,9 @@ class StyleTransferTrainer:
             self.As[id] = self._gram_matrix(style_layers[id])
 
         # result of image transform net
-        self.x = self.y_c/255.0
-        self.y_hat = self.transform.net(self.x)
-        
+        self.x = self.y_c / 255.0
+        self.y_hat = self.transform.net(self.x, self.style_index_batch)
+
         # get layer-values for x
         self.y_hat_pre = self.net.preprocess(self.y_hat)
         self.Fs = self.net.feed_forward(self.y_hat_pre, scope='mixed')
@@ -104,32 +110,32 @@ class StyleTransferTrainer:
             if id in self.CONTENT_LAYERS:
                 ## content loss ##
 
-                F = self.Fs[id]             # content feature of x
-                P = self.Ps[id]             # content feature of p
+                F = self.Fs[id]  # content feature of x
+                P = self.Ps[id]  # content feature of p
 
                 b, h, w, d = F.get_shape()  # first return value is batch size (must be one)
-                b = b.value                 # batch size
-                N = h.value*w.value         # product of width and height
-                M = d.value                 # number of filters
+                b = b.value  # batch size
+                N = h.value * w.value  # product of width and height
+                M = d.value  # number of filters
 
-                w = self.CONTENT_LAYERS[id] # weight for this layer
+                w = self.CONTENT_LAYERS[id]  # weight for this layer
 
-                L_content += w * 2 * tf.nn.l2_loss(F-P) / (b*N*M)
+                L_content += w * 2 * tf.nn.l2_loss(F - P) / (b * N * M)
 
             elif id in self.STYLE_LAYERS:
                 ## style loss ##
 
                 F = self.Fs[id]
 
-                b, h, w, d = F.get_shape()          # first return value is batch size (must be one)
-                b = b.value                         # batch size
-                N = h.value * w.value               # product of width and height
-                M = d.value                         # number of filters
+                b, h, w, d = F.get_shape()  # first return value is batch size (must be one)
+                b = b.value  # batch size
+                N = h.value * w.value  # product of width and height
+                M = d.value  # number of filters
 
-                w = self.STYLE_LAYERS[id]           # weight for this layer
+                w = self.STYLE_LAYERS[id]  # weight for this layer
 
-                G = self._gram_matrix(F, (b,N,M))   # style feature of x
-                A = self.As[id]                     # style feature of a
+                G = self._gram_matrix(F, (b, N, M))  # style feature of x
+                A = self.As[id]  # style feature of a
 
                 L_style += w * 2 * tf.nn.l2_loss(G - A) / (b * (M ** 2))
 
@@ -143,16 +149,10 @@ class StyleTransferTrainer:
         beta = self.style_weight
         gamma = self.tv_weight
 
-        self.L_content = alpha*L_content
-        self.L_style = beta*L_style
-        self.L_tv = gamma*L_tv
+        self.L_content = alpha * L_content
+        self.L_style = beta * L_style
+        self.L_tv = gamma * L_tv
         self.L_total = self.L_content + self.L_style + self.L_tv
-
-        # add summary for each loss
-        tf.summary.scalar('L_content', self.L_content)
-        tf.summary.scalar('L_style', self.L_style)
-        tf.summary.scalar('L_tv', self.L_tv)
-        tf.summary.scalar('L_total', self.L_total)
 
     # borrowed from https://github.com/lengstrom/fast-style-transfer/blob/master/src/optimize.py
     def _get_total_variation_loss(self, img):
@@ -161,8 +161,8 @@ class StyleTransferTrainer:
         h = h.value
         w = w.value
         d = d.value
-        tv_y_size = (h-1) * w * d
-        tv_x_size = h * (w-1) * d
+        tv_y_size = (h - 1) * w * d
+        tv_x_size = h * (w - 1) * d
         y_tv = tf.nn.l2_loss(img[:, 1:, :, :] - img[:, :self.batch_shape[1] - 1, :, :])
         x_tv = tf.nn.l2_loss(img[:, :, 1:, :] - img[:, :, :self.batch_shape[2] - 1, :])
         loss = 2. * (x_tv / tv_x_size + y_tv / tv_y_size) / b
@@ -181,93 +181,90 @@ class StyleTransferTrainer:
         train_op = optimizer.apply_gradients(zip(grads, trainable_variables), global_step=global_step,
                                              name='train_step')
 
-        """ tensor board """
-        # merge all summaries into a single op
-        merged_summary_op = tf.summary.merge_all()
-
-        # op to write logs to Tensorboard
-        summary_writer = tf.summary.FileWriter(self.save_path, graph=tf.get_default_graph())
-
         """ session run """
         self.sess.run(tf.global_variables_initializer())
 
         # saver to save model
         saver = tf.train.Saver()
-
-        # restore check-point if it exits
-        checkpoint_exists = True
-        try:
-            ckpt_state = tf.train.get_checkpoint_state(self.save_path)
-        except tf.errors.OutOfRangeError as e:
-            print('Cannot restore checkpoint: %s' % e)
-            checkpoint_exists = False
-        if not (ckpt_state and ckpt_state.model_checkpoint_path):
-            print('No model to restore at %s' % self.save_path)
-            checkpoint_exists = False
-
-        if checkpoint_exists:
-            tf.logging.info('Loading checkpoint %s', ckpt_state.model_checkpoint_path)
-            saver.restore(self.sess, ckpt_state.model_checkpoint_path)
-
+        current_style_num = 1
         """ loop for train """
         num_examples = len(self.x_list)
-
         # get iteration info
-        if checkpoint_exists:
-            iterations = self.sess.run(global_step)
-            epoch = (iterations * self.batch_size) // num_examples
-            iterations = iterations - epoch*(num_examples // self.batch_size)
-        else:
-            epoch = 0
-            iterations = 0
+        epoch = 0
+        iterations = 0
+        try:
+            while epoch < self.num_epochs:
+                while iterations * self.batch_size < num_examples:
+                    if current_style_num>len(self.y_list):
+                        current_style_num=1
+                    curr = iterations * self.batch_size
+                    step = curr + self.batch_size
+                    x_batch = np.zeros(self.batch_shape, dtype=np.float32)
+                    for j, img_p in enumerate(self.x_list[curr:step]):
+                        x_batch[j] = get_img(img_p, (256, 256, 3)).astype(np.float32)
 
-        while epoch < self.num_epochs:
-            while iterations * self.batch_size < num_examples:
+                    
+                    iterations += 1
 
-                curr = iterations * self.batch_size
-                step = curr + self.batch_size
-                x_batch = np.zeros(self.batch_shape, dtype=np.float32)
-                for j, img_p in enumerate(self.x_list[curr:step]):
-                    x_batch[j] = utils.get_img(img_p, (256, 256, 3)).astype(np.float32)
+                    assert x_batch.shape[0] == self.batch_size
+                   
+                    _, L_total, L_content, L_style, L_tv, step = self.sess.run(
+                        [train_op, self.L_total, self.L_content, self.L_style, self.L_tv, global_step],
+                        feed_dict={self.y_c: x_batch, self.y_s: self.y_list[current_style_num-1], self.style_index: np.array([current_style_num-1])})
 
-                iterations += 1
+                    print('epoch : %d, iter : %4d, ' % (epoch, step),
+                          'L_total : %g, L_content : %g, L_style : %g, L_tv : %f' % (L_total, L_content, L_style, L_tv))
 
-                assert x_batch.shape[0] == self.batch_size
+                    if step % self.check_period == 0:
+                        res = saver.save(self.sess, self.save_path + '/final.ckpt', step)
 
-                _, summary, L_total, L_content, L_style, L_tv, step = self.sess.run(
-                    [train_op, merged_summary_op, self.L_total, self.L_content, self.L_style, self.L_tv, global_step],
-                    feed_dict={self.y_c: x_batch, self.y_s: self.y_s0})
+                        if self.TEST:
+                            
+                            output_image = self.sess.run([self.y_hat_test], feed_dict={self.x_test: self.test_image, self.style_index_test: np.array([current_style_num-1])})
+                            output_image = np.squeeze(output_image[0])  # remove one dim for batch
+                            output_image = np.clip(output_image, 0., 255.)
 
-                print('epoch : %d, iter : %4d, ' % (epoch, step),
-                      'L_total : %g, L_content : %g, L_style : %g, L_tv : %g' % (L_total, L_content, L_style, L_tv))
+                            save_image(output_image, self.save_path + '/result_' + "%05d" % step + '.jpg')
+                    current_style_num+=1
+                epoch += 1
+                iterations = 0
+        except KeyboardInterrupt:
+            pass
+        finally:
 
-                # write logs at every iteration
-                summary_writer.add_summary(summary, iterations)
+            saver = tf.train.Saver()
+            res = saver.save(self.sess, self.save_path + '/final.ckpt')
+            self.sess.close()
+            tf.reset_default_graph()
 
-                if step % self.check_period == 0:
-                    res = saver.save(self.sess, self.save_path + '/final.ckpt', step)
+            for image_size in (384, 512):
+                content_image = load_image('../input/examples/examples/content_img/content_2.png', max_size=image_size)
 
-                    if self.TEST:
-                        output_image = self.sess.run([self.y_hat_test], feed_dict={self.x_test: self.test_image})
-                        output_image = np.squeeze(output_image[0])  # remove one dim for batch
-                        output_image = np.clip(output_image, 0., 255.)
+                # open session
+                soft_config = tf.ConfigProto(allow_soft_placement=True)
+                soft_config.gpu_options.allow_growth = True  # to deal with large image
+                sess = tf.Session(config=soft_config)
 
-                        utils.save_image(output_image, self.save_path + '/result_' + "%05d" % step + '.jpg')
-            epoch += 1
-            iterations = 0
-        res = saver.save(self.sess,self.save_path+'/final.ckpt')
+                # build the graph
+                transformer = StyleTransferTester(session=sess,
+                                                  model_path=res,
+                                                  content_image=content_image,
+                                                  n_styles=len(self.y_list))
+                transformer.save_as_tflite('{}_{}'.format(self.style_name, image_size))
+                print('Saved as tflite!')
+                sess.close()
+                tf.reset_default_graph()
 
     def _gram_matrix(self, tensor, shape=None):
-
         if shape is not None:
             B = shape[0]  # batch size
-            HW = shape[1] # height x width
+            HW = shape[1]  # height x width
             C = shape[2]  # channels
-            CHW = C*HW
+            CHW = C * HW
         else:
             B, H, W, C = map(lambda i: i.value, tensor.get_shape())
-            HW = H*W
-            CHW = W*H*C
+            HW = H * W
+            CHW = W * H * C
 
         # reshape the tensor so it is a (B, 2-dim) matrix
         # so that 'B'th gram matrix can be computed
@@ -280,7 +277,6 @@ class StyleTransferTrainer:
         gram = tf.matmul(feats_T, feats) / CHW
 
         return gram
-
 
 
 

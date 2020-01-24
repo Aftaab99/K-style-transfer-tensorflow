@@ -15,7 +15,7 @@ def parse_args():
     parser.add_argument('--vgg_model', type=str, default='pre_trained_model', help='The directory where the pre-trained model was saved', required=True)
     parser.add_argument('--trainDB_path', type=str, default='train2014',
                         help='The directory where MSCOCO DB was saved', required=True)
-    parser.add_argument('--style', type=str, default='style/wave.jpg', help='File path of style image (notation in the paper : a)', required=True)
+    parser.add_argument('--style_images', type=str, default='style/', help='Path to directory of style images ', required=True)
     parser.add_argument('--output', type=str, default='models', help='File path for trained-model. Train-log is also saved here.', required=True)
 	
     parser.add_argument('--content_weight', type=float, default=7.5e0, help='Weight of content-loss')
@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument('--style_layer_weights', nargs='+', type=float, default=[.2,.2,.2,.2,.2],
                         help='Style loss for each content is multiplied by corresponding weight')
 
-    parser.add_argument('--learn_rate', type=float, default=1e-3, help='Learning rate for Adam optimizer')
+    parser.add_argument('--learn_rate', type=float, default=10e-3, help='Learning rate for Adam optimizer')
     parser.add_argument('--num_epochs', type=int, default=2, help='The number of epochs to run')
     parser.add_argument('--batch_size', type=int, default=4, help='Batch size')
 
@@ -39,7 +39,8 @@ def parse_args():
     parser.add_argument('--test', type=str, default=None,
                         help='File path of content image (notation in the paper : x)')
 
-    parser.add_argument('--max_size', type=int, default=None, help='The maximum width or height of input images')
+    parser.add_argument('--max_size', type=int, default=256, help='The maximum width or height of input images')
+    parser.add_argument('--model_name', type=str, default="style_model", help='The name of the model')
 
     return check_args(parser.parse_args())
 
@@ -72,9 +73,9 @@ def check_args(args):
 
     # --style
     try:
-        assert os.path.exists(args.style)
+        assert os.path.exists(args.style_images)
     except:
-        print('There is no %s' % args.style)
+        print('There is no %s' % args.style_images)
         return None
 
     # --output
@@ -181,7 +182,8 @@ def main():
     content_images = utils.get_files(args.trainDB_path)
 
     # load style image
-    style_image = utils.load_image(args.style)
+    style_list = os.listdir(args.style_images)
+    style_list.sort()
 
     # create a map for content layers info
     CONTENT_LAYERS = {}
@@ -201,7 +203,7 @@ def main():
                                                           content_layer_ids=CONTENT_LAYERS,
                                                           style_layer_ids=STYLE_LAYERS,
                                                           content_images=content_images,
-                                                          style_image=add_one_dim(style_image),
+                                                          style_images=[add_one_dim(style_image) for style_image in style_list],
                                                           net=vgg_net,
                                                           num_epochs=args.num_epochs,
                                                           batch_size=args.batch_size,
@@ -213,7 +215,7 @@ def main():
                                                           check_period=args.checkpoint_every,
                                                           test_image=args.test,
                                                           max_size=args.max_size,
-                                                          )
+                                                          style_name=args.model_name)
     # launch the graph in a session
     trainer.train()
 

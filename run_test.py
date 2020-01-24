@@ -10,9 +10,12 @@ def parse_args():
     desc = "Tensorflow implementation of 'Perceptual Losses for Real-Time Style Transfer and Super-Resolution'"
     parser = argparse.ArgumentParser(description=desc)
 
-    parser.add_argument('--style_model', type=str, default='models/wave.ckpt', help='location for model file (*.ckpt)',
+    parser.add_argument('--style_model', type=str, default='models/style_model.ckpt', help='location for model file (*.ckpt)',
                         required=True)
-
+    parser.add_argument('--style_index', type=int, default=0, help='Index of the style. 0 to style_num-1.',
+                        required=True)
+    parser.add_argument('--style_num', type=int, help='The number of style images the model was trained on',
+                        required=True)
     parser.add_argument('--content', type=str, default='content/female_knight.jpg',
                         help='File path of content image (notation in the paper : x)', required=True)
 
@@ -32,8 +35,7 @@ def check_args(args):
             args.style_model + '.data-00000-of-00001')
     except:
         print('There is no %s'%args.style_model)
-        print('Tensorflow r0.12 requires 3 files related to *.ckpt')
-        print('If you want to restore any models generated from old tensorflow versions, this assert might be ignored')
+        print('Tensorflow requires 3 files related to *.ckpt')
         return None
 
     # --content
@@ -81,6 +83,8 @@ def main():
     transformer = style_transfer_tester.StyleTransferTester(session=sess,
                                                             model_path=args.style_model,
                                                             content_image=content_image,
+                                                            n_styles=args.style_num,
+                                                            style_index=args.style_index
                                                             )
     # execute the graph
     start_time = time.time()
