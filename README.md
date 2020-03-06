@@ -1,13 +1,10 @@
 # K-Style Transfer for Mobile
 
-A tensorflow implementation of a Learned Representation of artistic style
-* [Perceptual Losses for Real-Time Style Transfer and Super-Resolution](http://cs.stanford.edu/people/jcjohns/eccv16/) by Johnson
-* [Instance Normalization](https://arxiv.org/abs/1607.08022) by Ulyanov
+A tensorflow implementation of a [Learned Representation of artistic style](https://arxiv.org/abs/1610.07629)
 
+Most of the code in the repo was taken from [hwalsuklee/tensorflow-fast-style-transfer](https://github.com/hwalsuklee/tensorflow-fast-style-transfer). 
 
-Most of the code in the repo was taken from [hwalsuklee/tensorflow-fast-style-transfer](https://github.com/hwalsuklee/tensorflow-fast-style-transfer).  
-
-This is the implementation used in my app [Spectrum Artistic editor](https://www.amazon.com/Aftaab-Spectrum-Artistic-Photo-Editor/dp/B07XTQDBRJ).  If this fork helps you, please consider downloading the app. It really helps me out.
+This is the implementation used in my app [Spectrum - Artistic Photo editor](https://play.google.com/store/apps/details?id=com.spectrumeditor.aftaab.spectrumJ).  If this fork helps you, please consider downloading the app, it really helps me out.
 
 ### Changes/Improvements
 1. Added Conditional Instance Normalization which enables a single model to learn multiple styles with only a few extra parameters.
@@ -18,4 +15,4 @@ This is the implementation used in my app [Spectrum Artistic editor](https://www
 I trained my models in this [Kaggle kernel](https://www.kaggle.com/aftaab/styletransferondevice/). Please see `run_train.py` and `run_test.py` for training options.
 
 ### Results
-[Spectrum Landing Page](https://aftaab99.github.io/spectrum_landing_page/)
+[Spectrum Landing Page](https://aftaab99.github.io/spectrum/)
