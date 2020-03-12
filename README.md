@@ -4,7 +4,7 @@ A tensorflow implementation of a [Learned Representation of artistic style](http
 
 Most of the code in the repo was taken from [hwalsuklee/tensorflow-fast-style-transfer](https://github.com/hwalsuklee/tensorflow-fast-style-transfer). 
 
-This is the implementation used in my app [Spectrum - Artistic Photo editor](https://play.google.com/store/apps/details?id=com.spectrumeditor.aftaab.spectrumJ).  If this fork helps you, please consider downloading the app, it really helps me out.
+This is the implementation used in my app [Spectrum - Artistic Photo editor](https://play.google.com/store/apps/details?id=com.spectrumeditor.aftaab.spectrum).  If this fork helps you, please consider downloading the app, it really helps me out.
 
 ### Changes/Improvements
 1. Added Conditional Instance Normalization which enables a single model to learn multiple styles with only a few extra parameters.
